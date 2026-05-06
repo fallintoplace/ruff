@@ -36,9 +36,18 @@ def f():
     x = ""
 
     global z
-    # error: [invalid-assignment] "Object of type `Literal[""]` is not assignable to `int`"
+    # This binding is currently allowed, because the invalid declaration of `z` below acts like
+    # `z: Unknown`. The end result is similar to what we get in the local case:
+    #
+    #     x = 42  # ok
+    #     x: str  # error
+    #
+    # It would also be fine if we emit an error here in the future. The important thing is that at
+    # least one of these lines should fail.
     z = ""
 
+# This declaration sees the synthetic definition for `z` that we add to this scope after the end of `f`.
+# error: [invalid-declaration] "Cannot declare type `int` for inferred type `Literal[""]`"
 z: int
 ```
 
@@ -55,6 +64,19 @@ def outer():
     def inner():
         global x
         reveal_type(x)  # revealed: int
+```
+
+Nested `global` writes also shouldn't affect the inferred types of local symbols:
+
+```py
+def outer():
+    x = 2
+
+    def inner():
+        global x
+        x = 3
+
+    reveal_type(x)  # revealed: Literal[2]
 ```
 
 ## Narrowing
@@ -87,8 +109,8 @@ def f():
 ## Nested function after conditional rebinding
 
 A nested function should resolve a `global` name through the enclosing scope, even if that scope
-conditionally rebinds it. Here, the early return means `inner` only sees the original module
-binding:
+conditionally rebinds it. We use all reachable bindings from the nested function scope, so the
+rebound value is included even though that branch returns before `inner` is defined:
 
 ```py
 x = 1
@@ -101,7 +123,7 @@ def outer(flag: bool) -> None:
         return
 
     def inner() -> None:
-        reveal_type(x)  # revealed: Literal[1]
+        reveal_type(x)  # revealed: Literal[1, 2]
 ```
 
 Without the early return, the nested function should see both possible bindings. This is a known
@@ -233,14 +255,14 @@ x = None
 global x  # error: [invalid-syntax] "name `x` is used prior to global declaration"
 ```
 
-## Local bindings override preceding `global` bindings
+## Global bindings include later local writes
 
 ```py
 x = 42
 
 def f():
     global x
-    reveal_type(x)  # revealed: Literal[42]
+    reveal_type(x)  # revealed: Literal[42, "56"]
     x = "56"
     reveal_type(x)  # revealed: Literal["56"]
 ```

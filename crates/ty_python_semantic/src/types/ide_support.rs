@@ -1876,7 +1876,8 @@ mod resolve_definition {
             | DefinitionKind::TypeVar(_)
             | DefinitionKind::ParamSpec(_)
             | DefinitionKind::TypeVarTuple(_)
-            | DefinitionKind::LoopHeader(_) => {
+            | DefinitionKind::LoopHeader(_)
+            | DefinitionKind::NestedScopeBinding(_) => {
                 // Not yet implemented
                 return Err(());
             }

@@ -926,6 +926,9 @@ pub(super) struct UseDefMapBuilder<'db> {
     /// Uses the same index as `all_definitions`.
     used_bindings: IndexVec<ScopedDefinitionId, bool>,
 
+    /// Synthetic nested-scope binding contributions stay live across later local rebindings.
+    retained_bindings: IndexVec<ScopedDefinitionId, bool>,
+
     /// Builder of predicates.
     pub(super) predicates: PredicatesBuilder<'db>,
 
@@ -979,6 +982,7 @@ impl<'db> UseDefMapBuilder<'db> {
         Self {
             all_definitions: IndexVec::from_iter([DefinitionState::Undefined]),
             used_bindings: IndexVec::from_iter([false]),
+            retained_bindings: IndexVec::from_iter([false]),
             predicates: PredicatesBuilder::default(),
             reachability_constraints: ReachabilityConstraintsBuilder::default(),
             bindings_by_use: IndexVec::new(),
@@ -997,9 +1001,19 @@ impl<'db> UseDefMapBuilder<'db> {
     }
 
     fn push_definition(&mut self, state: DefinitionState<'db>) -> ScopedDefinitionId {
+        self.push_definition_with_retention(state, false)
+    }
+
+    fn push_definition_with_retention(
+        &mut self,
+        state: DefinitionState<'db>,
+        retained_across_rebindings: bool,
+    ) -> ScopedDefinitionId {
         let def_id = self.all_definitions.push(state);
         let used_id = self.used_bindings.push(false);
+        let retained_id = self.retained_bindings.push(retained_across_rebindings);
         debug_assert_eq!(def_id, used_id);
+        debug_assert_eq!(def_id, retained_id);
         def_id
     }
 
@@ -1061,6 +1075,7 @@ impl<'db> UseDefMapBuilder<'db> {
         place: ScopedPlaceId,
         binding: Definition<'db>,
         previous_definitions: PreviousDefinitions,
+        retained_across_rebindings: bool,
     ) {
         let bindings = match place {
             ScopedPlaceId::Symbol(symbol) => self.symbol_states[symbol].bindings(),
@@ -1070,7 +1085,20 @@ impl<'db> UseDefMapBuilder<'db> {
         self.bindings_by_definition
             .insert(binding, bindings.clone());
 
-        let def_id = self.push_definition(DefinitionState::Defined(binding));
+        let preserved_bindings = if previous_definitions.are_shadowed() {
+            bindings
+                .iter()
+                .copied()
+                .filter(|binding| self.retained_bindings[binding.binding()])
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        let def_id = self.push_definition_with_retention(
+            DefinitionState::Defined(binding),
+            retained_across_rebindings,
+        );
         let place_state = match place {
             ScopedPlaceId::Symbol(symbol) => &mut self.symbol_states[symbol],
             ScopedPlaceId::Member(member) => &mut self.member_states[member],
@@ -1078,12 +1106,13 @@ impl<'db> UseDefMapBuilder<'db> {
         self.declarations_by_binding
             .insert(binding, place_state.declarations().clone());
 
-        place_state.record_binding(
+        place_state.record_binding_with_preserved(
             def_id,
             self.reachability,
             self.is_class_scope,
             place.is_symbol(),
             previous_definitions,
+            &preserved_bindings,
         );
 
         let bindings = match place {
@@ -1712,7 +1741,6 @@ impl<'db> UseDefMapBuilder<'db> {
             &mut interned_bindings,
             &mut interned_ids_by_bindings,
         );
-
         interned_bindings.shrink_to_fit();
         interned_declarations.shrink_to_fit();
 

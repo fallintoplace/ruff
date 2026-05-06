@@ -263,6 +263,25 @@ impl Bindings {
         is_place_name: bool,
         previous_definitions: PreviousDefinitions,
     ) {
+        self.record_binding_with_preserved(
+            binding,
+            reachability_constraint,
+            is_class_scope,
+            is_place_name,
+            previous_definitions,
+            &[],
+        );
+    }
+
+    pub(super) fn record_binding_with_preserved(
+        &mut self,
+        binding: ScopedDefinitionId,
+        reachability_constraint: ScopedReachabilityConstraintId,
+        is_class_scope: bool,
+        is_place_name: bool,
+        previous_definitions: PreviousDefinitions,
+        preserved_bindings: &[LiveBinding],
+    ) {
         // If we are in a class scope, and the unbound name binding was previously visible, but we will
         // now replace it, record the narrowing constraints on it:
         if is_class_scope && is_place_name && self.live_bindings[0].binding.is_unbound() {
@@ -272,6 +291,7 @@ impl Bindings {
         // constraints.
         if previous_definitions.are_shadowed() {
             self.live_bindings.clear();
+            self.live_bindings.extend_from_slice(preserved_bindings);
         }
         self.live_bindings.push(LiveBinding {
             binding,
@@ -389,6 +409,26 @@ impl PlaceState {
             is_class_scope,
             is_place_name,
             previous_definitions,
+        );
+    }
+
+    pub(super) fn record_binding_with_preserved(
+        &mut self,
+        binding_id: ScopedDefinitionId,
+        reachability_constraint: ScopedReachabilityConstraintId,
+        is_class_scope: bool,
+        is_place_name: bool,
+        previous_definitions: PreviousDefinitions,
+        preserved_bindings: &[LiveBinding],
+    ) {
+        debug_assert_ne!(binding_id, ScopedDefinitionId::UNBOUND);
+        self.bindings.record_binding_with_preserved(
+            binding_id,
+            reachability_constraint,
+            is_class_scope,
+            is_place_name,
+            previous_definitions,
+            preserved_bindings,
         );
     }
 
