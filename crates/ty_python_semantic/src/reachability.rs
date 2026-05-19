@@ -217,6 +217,7 @@ use ty_python_core::{
         Predicates, ScopedPredicateId,
     },
     reachability_constraints::{ReachabilityConstraints, ScopedReachabilityConstraintId},
+    use_def_map,
 };
 
 fn singleton_to_type(db: &dyn Db, singleton: ruff_python_ast::Singleton) -> Type<'_> {
@@ -1053,6 +1054,13 @@ fn analyze_single(db: &dyn Db, predicate: &Predicate) -> Truthiness {
                 }
             }
             .negate_if(!predicate.is_positive)
+        }
+        PredicateNode::DeferredWalrusReachability(deferred) => {
+            let use_def = use_def_map(db, deferred.scope(db));
+            use_def
+                .reachability_constraints()
+                .evaluate(db, use_def.predicates(), deferred.reachability)
+                .negate_if(!predicate.is_positive)
         }
         PredicateNode::Pattern(inner) => analyze_pattern_predicate(db, inner),
         PredicateNode::StarImportPlaceholder(star_import) => {
