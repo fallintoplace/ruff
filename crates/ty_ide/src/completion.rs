@@ -574,6 +574,8 @@ pub enum CompletionKind {
 #[derive(Clone, Debug)]
 pub struct CompletionSettings {
     pub auto_import: bool,
+    /// Whether callable completions should insert parentheses.
+    pub complete_function_parentheses: bool,
 }
 
 // N.B. It's important for the defaults here to match the defaults
@@ -583,7 +585,10 @@ pub struct CompletionSettings {
 // `CompletionOptions::into_settings` definition.
 impl Default for CompletionSettings {
     fn default() -> CompletionSettings {
-        CompletionSettings { auto_import: true }
+        CompletionSettings {
+            auto_import: true,
+            complete_function_parentheses: false,
+        }
     }
 }
 

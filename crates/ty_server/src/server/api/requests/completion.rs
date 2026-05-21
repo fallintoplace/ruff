@@ -4,11 +4,14 @@ use std::time::Instant;
 use lsp_types::request::Completion;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionList,
-    CompletionParams, CompletionResponse, Documentation, TextEdit, Url,
+    CompletionParams, CompletionResponse, Documentation, InsertTextFormat, TextEdit, Url,
 };
+use ruff_db::files::File;
+use ruff_db::parsed::parsed_module;
+use ruff_python_ast::token::TokenKind;
 use ruff_source_file::OneIndexed;
-use ruff_text_size::Ranged;
-use ty_ide::{CompletionKind, completion};
+use ruff_text_size::{Ranged, TextSize};
+use ty_ide::{CompletionKind, CompletionSettings, completion};
 use ty_project::ProjectDatabase;
 
 use crate::document::{PositionExt, ToRangeExt};
@@ -116,6 +119,17 @@ impl BackgroundDocumentRequestHandler for CompletionRequestHandler {
 
                     Documentation::MarkupContent(lsp_types::MarkupContent { kind, value })
                 });
+                let snippet = completion_snippet(
+                    comp.name.as_str(),
+                    comp.insert.as_deref(),
+                    comp.kind,
+                    settings,
+                    db,
+                    file,
+                    offset,
+                );
+                let insert_text_format = snippet.as_ref().map(|_| InsertTextFormat::SNIPPET);
+                let insert_text = snippet.or_else(|| comp.insert.map(String::from));
 
                 CompletionItem {
                     label,
@@ -123,7 +137,8 @@ impl BackgroundDocumentRequestHandler for CompletionRequestHandler {
                     sort_text: Some(format!("{i:-max_index_len$}")),
                     detail: type_display,
                     label_details,
-                    insert_text: comp.insert.map(String::from),
+                    insert_text,
+                    insert_text_format,
                     additional_text_edits: import_edit.map(|edit| vec![edit]),
                     documentation,
                     ..Default::default()
@@ -141,6 +156,36 @@ impl BackgroundDocumentRequestHandler for CompletionRequestHandler {
         );
         Ok(Some(response))
     }
+}
+
+fn completion_snippet(
+    name: &str,
+    insert: Option<&str>,
+    kind: Option<CompletionKind>,
+    settings: &CompletionSettings,
+    db: &ProjectDatabase,
+    file: File,
+    offset: TextSize,
+) -> Option<String> {
+    if matches!(
+        kind,
+        Some(CompletionKind::Function | CompletionKind::Method | CompletionKind::Class)
+    ) && settings.complete_function_parentheses
+        && !next_token_is_open_parenthesis(db, file, offset)
+    {
+        Some(format!("{}($0)", insert.unwrap_or(name)))
+    } else {
+        None
+    }
+}
+
+fn next_token_is_open_parenthesis(db: &ProjectDatabase, file: File, offset: TextSize) -> bool {
+    let parsed = parsed_module(db, file).load(db);
+    parsed
+        .tokens()
+        .at_offset(offset)
+        .last()
+        .is_some_and(|token| token.kind() == TokenKind::Lpar)
 }
 
 impl RetriableRequestHandler for CompletionRequestHandler {
