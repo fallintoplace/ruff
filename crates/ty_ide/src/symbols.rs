@@ -1278,6 +1278,16 @@ impl<'db> SourceOrderVisitor<'db> for SymbolVisitor<'db> {
                 // Restore the previous class scope state
                 self.in_class = was_in_class;
             }
+            ast::Stmt::TypeAlias(type_alias) => {
+                // Include assignments only when we're in global or class scope
+                if self.in_function {
+                    return;
+                }
+                let ast::Expr::Name(name) = &*type_alias.name else {
+                    return;
+                };
+                self.add_assignment(stmt, name);
+            }
             ast::Stmt::Assign(assign) => {
                 self.add_all_assignment(&assign.targets, Some(&assign.value));
 
@@ -1502,6 +1512,7 @@ mod tests {
 FOO = 1
 foo = 1
 frob: int = 1
+type Quux = int
 class Foo:
     BAR = 1
 def quux():
@@ -1511,6 +1522,7 @@ def quux():
         FOO :: Constant
         foo :: Variable
         frob :: Variable
+        Quux :: Variable
         Foo :: Class
         quux :: Function
         ",
